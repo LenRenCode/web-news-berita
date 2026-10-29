@@ -2,7 +2,7 @@
 const { db } = require('../db/index');
 const { cleanArticleContent } = require('./adminArticleService');
 
-const ownerUsername = (process.env.OWNER_USERNAME || 'admin').replace(/'/g, "''");
+const ownerUsername = process.env.OWNER_USERNAME || 'admin';
 
 // Helper query dasar untuk artikel yang berstatus 'terbit'
 const BASE_SELECT = `
@@ -10,7 +10,7 @@ const BASE_SELECT = `
     a.id, a.title, a.slug, a.summary, a.content, a.image_path,
     a.status, a.views, a.created_at, a.updated_at, a.published_at,
     c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
-    CASE WHEN u.username = '${ownerUsername}' THEN 'Redaksi' ELSE u.username END AS author_name
+    CASE WHEN u.username = ? THEN 'Redaksi' ELSE u.username END AS author_name
   FROM articles a
   LEFT JOIN categories c ON a.category_id = c.id
   LEFT JOIN users u ON a.author_id = u.id
@@ -34,7 +34,7 @@ function getHeadlineArticle() {
     ${BASE_SELECT}
     ORDER BY COALESCE(a.published_at, a.created_at) DESC
     LIMIT 1
-  `).get();
+  `).get(ownerUsername);
 
   return headline || null;
 }
@@ -67,7 +67,7 @@ function getLatestArticles({ page = 1, limit = 6, excludeId = null } = {}) {
     ${excludeId ? "AND a.id != ?" : ""}
     ORDER BY COALESCE(a.published_at, a.created_at) DESC
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
+  `).all(ownerUsername, ...params, limit, offset);
 
   return {
     articles,
@@ -85,7 +85,7 @@ function getPopularArticles(limit = 5) {
     ${BASE_SELECT}
     ORDER BY a.views DESC, COALESCE(a.published_at, a.created_at) DESC
     LIMIT ?
-  `).all(limit);
+  `).all(ownerUsername, limit);
 }
 
 // 5. Ambil Berita Berdasarkan Kategori dengan Paginasi
@@ -109,7 +109,7 @@ function getArticlesByCategory({ categorySlug, page = 1, limit = 6 }) {
     AND a.category_id = ?
     ORDER BY COALESCE(a.published_at, a.created_at) DESC
     LIMIT ? OFFSET ?
-  `).all(category.id, limit, offset);
+  `).all(ownerUsername, category.id, limit, offset);
 
   return {
     category,
@@ -142,7 +142,7 @@ function searchArticles({ query = '', page = 1, limit = 6 }) {
     AND (a.title LIKE ? OR a.content LIKE ?)
     ORDER BY COALESCE(a.published_at, a.created_at) DESC
     LIMIT ? OFFSET ?
-  `).all(searchTerm, searchTerm, limit, offset);
+  `).all(ownerUsername, searchTerm, searchTerm, limit, offset);
 
   return {
     query,
@@ -160,7 +160,7 @@ function getArticleBySlug(slug) {
   const article = db.prepare(`
     ${BASE_SELECT}
     AND a.slug = ?
-  `).get(slug);
+  `).get(ownerUsername, slug);
 
   if (!article) return null;
   article.content = cleanArticleContent(article.content);
@@ -199,7 +199,7 @@ function getRelatedArticles(categoryId, currentArticleId, limit = 3) {
     AND a.category_id = ? AND a.id != ?
     ORDER BY COALESCE(a.published_at, a.created_at) DESC
     LIMIT ?
-  `).all(categoryId, currentArticleId, limit);
+  `).all(ownerUsername, categoryId, currentArticleId, limit);
 }
 
 module.exports = {

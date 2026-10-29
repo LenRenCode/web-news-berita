@@ -37,6 +37,7 @@ const sessionStore = new SqliteStore({
     intervalMs: 15 * 60 * 1000 // Bersihkan sesi kedaluwarsa tiap 15 menit
   }
 });
+sessionDb.exec('CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(datetime(expire))');
 
 app.use(session({
   store: sessionStore,
