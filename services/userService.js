@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const { db } = require('../db');
+const { revokeUserSessions } = require('./sessionService');
 
 const USER_ROLES = ['owner', 'editor', 'penulis'];
 
@@ -50,6 +51,7 @@ function resetUserPassword(userId, passwordInput) {
   const user = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
   if (!user) throw new Error('Pengguna tidak ditemukan.');
   const { password } = validateCredentials(user.username, passwordInput);
+  revokeUserSessions(userId);
   const result = db.prepare(`
     UPDATE users
     SET password_hash = ?, must_change_password = 1

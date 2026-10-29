@@ -1,9 +1,14 @@
 // Inisialisasi dan Pergantian Tema Gelap / Terang (Dark/Light Mode)
 (function() {
-  const THEME_KEY = 'namaberita_theme';
+  const THEME_KEY = 'berita_opensource_theme';
+  const LEGACY_THEME_KEY = 'namaberita_theme';
   
   // Ambil tema yang tersimpan atau preferensi sistem
-  const savedTheme = localStorage.getItem(THEME_KEY);
+  const savedTheme = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY);
+  if (savedTheme) {
+    localStorage.setItem(THEME_KEY, savedTheme);
+    localStorage.removeItem(LEGACY_THEME_KEY);
+  }
   const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   
   const initialTheme = savedTheme || (systemPrefersDark ? 'dark' : 'light');

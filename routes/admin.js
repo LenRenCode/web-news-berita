@@ -261,8 +261,17 @@ router.get('/ganti-password', requireAuth, (req, res) => {
 });
 
 router.post('/ganti-password', requireAuth, (req, res, next) => {
-  const { new_password: password, confirm_password: confirmation } = req.body;
-  const result = changePassword(res.locals.currentUser.id, password, confirmation);
+  const {
+    current_password: currentPassword,
+    new_password: password,
+    confirm_password: confirmation
+  } = req.body;
+  const result = changePassword(
+    res.locals.currentUser.id,
+    currentPassword,
+    password,
+    confirmation
+  );
   if (!result.success) {
     res.locals.csrfToken = createCsrfToken(req);
     return res.status(400).render('admin/change-password', {

@@ -1,4 +1,4 @@
-// Server Utama Aplikasi Web Berita "NamaBerita"
+// Server Utama Aplikasi Web Berita "Berita OpenSource"
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
@@ -67,7 +67,7 @@ app.use('/', publicRouter);
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`[SERVER] NamaBerita berjalan di http://localhost:${PORT}`);
+    console.log(`[SERVER] Berita OpenSource berjalan di http://localhost:${PORT}`);
   });
 }
 

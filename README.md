@@ -1,4 +1,4 @@
-# NamaBerita - Modern Web Portal Berita
+# Berita OpenSource
 
 Portal berita modern, mandiri, dan portabel yang dibangun menggunakan **Node.js**, **Express**, **SQLite (better-sqlite3)**, template engine **EJS**, serta **Vanilla CSS & JS**. Berjalan secara default di `http://localhost:3000`.
 
@@ -58,7 +58,7 @@ Sesuaikan konfigurasi di dalam file `.env`:
 PORT=3000
 DATA_DIR=./data
 ADMIN_PATH=admin
-SESSION_SECRET=kunci_rahasia_sesi_namaberita_acak_dan_panjang_minimal_32_karakter
+SESSION_SECRET=kunci_rahasia_sesi_berita_opensource_acak_dan_panjang_minimal_32_karakter
 OWNER_USERNAME=admin
 OWNER_PASSWORD=OwnerPassword123!
 ```
@@ -134,4 +134,4 @@ Semua artikel, gambar sampul, data pengguna, dan sesi login akan **langsung berj
 ---
 
 ## 📄 Lisensi
-Hak Cipta Dilindungi Undang-Undang &copy; 2026 **NamaBerita Media**.
+Hak Cipta Dilindungi Undang-Undang &copy; 2026 **Berita OpenSource**.

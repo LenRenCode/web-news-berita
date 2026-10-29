@@ -43,18 +43,26 @@ function loginUser(username, password) {
 }
 
 // 2. Ganti Password Wajib Pengguna
-function changePassword(userId, newPassword, confirmPassword) {
-  const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(userId);
+function changePassword(userId, currentPassword, newPassword, confirmPassword) {
+  const user = db.prepare('SELECT id, username, password_hash FROM users WHERE id = ?').get(userId);
   if (!user) {
     return { success: false, message: 'Pengguna tidak ditemukan.' };
   }
 
-  const cleanNew = newPassword || '';
-  const cleanConfirm = confirmPassword || '';
+  if (typeof currentPassword !== 'string' ||
+      !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return { success: false, message: 'Password saat ini atau sementara tidak benar.' };
+  }
+
+  const cleanNew = typeof newPassword === 'string' ? newPassword : '';
+  const cleanConfirm = typeof confirmPassword === 'string' ? confirmPassword : '';
 
   // Validasi: Minimal 8 karakter
   if (cleanNew.length < 8) {
     return { success: false, message: 'Password baru minimal harus 8 karakter.' };
+  }
+  if (Buffer.byteLength(cleanNew, 'utf8') > 72) {
+    return { success: false, message: 'Password baru maksimal 72 byte.' };
   }
 
   // Validasi: Tidak boleh sama dengan username

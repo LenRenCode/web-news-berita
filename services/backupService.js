@@ -10,7 +10,7 @@ const { db, dbPath, uploadsDir, backupDir } = require('../db');
 
 const MAX_BACKUP_SIZE = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 10000;
-const BACKUP_FILENAME = /^namaberita-[\dTZ-]+-[a-f0-9]{8}\.zip$/;
+const BACKUP_FILENAME = /^(?:namaberita|berita-opensource)-[\dTZ-]+-[a-f0-9]{8}\.zip$/;
 
 function createZip(databasePath, destinationPath) {
   return new Promise((resolve, reject) => {
@@ -167,7 +167,7 @@ function inspectArchive(archivePath, extractDirectory = null) {
 
 function createBackup() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `namaberita-${timestamp}-${crypto.randomBytes(4).toString('hex')}.zip`;
+  const filename = `berita-opensource-${timestamp}-${crypto.randomBytes(4).toString('hex')}.zip`;
   const backupPath = path.join(backupDir, filename);
   const databaseCopy = path.join(backupDir, `.${filename}.db`);
 

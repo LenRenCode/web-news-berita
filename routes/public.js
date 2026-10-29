@@ -1,4 +1,4 @@
-// Rute Halaman Publik Portal Berita "NamaBerita"
+// Rute Halaman Publik Portal Berita "Berita OpenSource"
 const express = require('express');
 const router = express.Router();
 
