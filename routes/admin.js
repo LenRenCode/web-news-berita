@@ -4,7 +4,7 @@ const path = require('path');
 const bcrypt = require('bcrypt');
 const express = require('express');
 const multer = require('multer');
-const { db, uploadsDir } = require('../db');
+const { db, uploadsDir, backupDir } = require('../db');
 const { loginUser, changePassword } = require('../services/authService');
 const {
   ARTICLE_STATUSES,
@@ -44,7 +44,12 @@ const loginError = 'Username atau password salah';
 const articleEditor = requireAuth;
 const canManageContent = requireRole('owner', 'editor');
 const backupUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: backupDir,
+    filename(req, file, callback) {
+      callback(null, `.upload-${crypto.randomBytes(24).toString('hex')}.tmp`);
+    }
+  }),
   limits: { fileSize: 512 * 1024 * 1024, files: 1 }
 });
 const upload = multer({
@@ -145,7 +150,14 @@ function renderBackupPage(req, res, { error = null, success = null, status = 200
 
 function handleBackupUpload(req, res, next) {
   backupUpload.single('backup')(req, res, (error) => {
-    if (!error) return next();
+    if (!error) {
+      if (req.file) {
+        res.once('finish', () => {
+          if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        });
+      }
+      return next();
+    }
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       return renderBackupPage(req, res, {
         error: 'Ukuran file backup maksimal 512 MB.',
@@ -423,9 +435,9 @@ router.get('/backup', requireRole('owner'), (req, res) => {
   });
 });
 
-router.post('/backup/buat', requireRole('owner'), (req, res, next) => {
+router.post('/backup/buat', requireRole('owner'), async (req, res, next) => {
   try {
-    createBackup();
+    await createBackup();
     return res.redirect(`${adminPath}/backup?message=dibuat`);
   } catch (error) {
     return next(error);
@@ -449,9 +461,9 @@ router.post('/backup/hapus/:filename', requireRole('owner'), (req, res) => {
   return res.redirect(`${adminPath}/backup?message=dihapus`);
 });
 
-router.post('/backup/restore', requireRole('owner'), handleBackupUpload, csrfProtection, (req, res, next) => {
+router.post('/backup/restore', requireRole('owner'), handleBackupUpload, csrfProtection, async (req, res, next) => {
   try {
-    const result = restoreBackup(req.file);
+    const result = await restoreBackup(req.file);
     return renderBackupPage(req, res, {
       success: `Pemulihan selesai. Backup pengaman dibuat: ${result.safetyBackup}. Restart server sebelum melanjutkan.`
     });
