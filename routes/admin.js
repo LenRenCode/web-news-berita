@@ -22,12 +22,31 @@ const {
 const { requireAuth, requirePasswordChanged, requireRole } = require('../middleware/auth');
 const { csrfProtection, createCsrfToken } = require('../middleware/csrf');
 const { getAdminPath } = require('../utils/adminPath');
+const {
+  createBackup,
+  deleteBackup,
+  getBackupPath,
+  listBackups,
+  restoreBackup
+} = require('../services/backupService');
+const {
+  USER_ROLES,
+  createUser,
+  listUsers,
+  resetUserPassword,
+  setUserActive,
+  updateUserRole
+} = require('../services/userService');
 
 const router = express.Router();
 const adminPath = getAdminPath();
 const loginError = 'Username atau password salah';
 const articleEditor = requireAuth;
 const canManageContent = requireRole('owner', 'editor');
+const backupUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 512 * 1024 * 1024, files: 1 }
+});
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 3 * 1024 * 1024, files: 1 },
@@ -90,7 +109,13 @@ function renderDashboard(req, res) {
   const user = res.locals.currentUser;
   const stats = getArticleStats(user.role === 'penulis' ? user.id : null);
   const recentArticles = listArticles({ user }).slice(0, 8);
-  return res.render('admin/dashboard', { adminPath, stats, recentArticles });
+  return res.render('admin/dashboard', {
+    adminPath,
+    stats,
+    recentArticles,
+    currentUser: user,
+    csrfToken: res.locals.csrfToken
+  });
 }
 
 function renderArticleForm(res, { article = null, error = null, status = 200 }) {
@@ -106,6 +131,28 @@ function renderArticleForm(res, { article = null, error = null, status = 200 }) 
     statuses: res.locals.currentUser.role === 'penulis'
       ? ['draft', 'diajukan']
       : ARTICLE_STATUSES
+  });
+}
+
+function renderBackupPage(req, res, { error = null, success = null, status = 200 } = {}) {
+  return res.status(status).render('admin/backup', {
+    adminPath,
+    backups: listBackups(),
+    error,
+    success
+  });
+}
+
+function handleBackupUpload(req, res, next) {
+  backupUpload.single('backup')(req, res, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return renderBackupPage(req, res, {
+        error: 'Ukuran file backup maksimal 512 MB.',
+        status: 400
+      });
+    }
+    return next(error);
   });
 }
 
@@ -254,6 +301,10 @@ router.get('/berita/tulis', requireRole('owner', 'editor', 'penulis'), (req, res
   return renderArticleForm(res, {});
 });
 
+router.get('/berita/tambah', requireRole('owner', 'editor', 'penulis'), (req, res) => {
+  return res.redirect(`${adminPath}/berita/tulis`);
+});
+
 router.post('/berita', requireRole('owner', 'editor', 'penulis'), uploadSingleImage, csrfProtection, (req, res, next) => {
   return finishArticleSave(req, res, next, null);
 });
@@ -358,6 +409,165 @@ router.post('/kategori/:id/hapus', requireRole('owner', 'editor'), (req, res) =>
     return res.status(404).send('Kategori tidak ditemukan.');
   }
   return res.redirect(`${adminPath}/kategori?dihapus=1`);
+});
+
+router.get('/backup', requireRole('owner'), (req, res) => {
+  return renderBackupPage(req, res, {
+    success: req.query.message === 'dibuat'
+      ? 'Backup berhasil dibuat.'
+      : req.query.message === 'restore'
+        ? 'Backup berhasil dipulihkan. Restart server sebelum melanjutkan.'
+        : req.query.message === 'dihapus'
+          ? 'File backup berhasil dihapus.'
+          : null
+  });
+});
+
+router.post('/backup/buat', requireRole('owner'), (req, res, next) => {
+  try {
+    createBackup();
+    return res.redirect(`${adminPath}/backup?message=dibuat`);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/backup/unduh/:filename', requireRole('owner'), (req, res, next) => {
+  const backupPath = getBackupPath(req.params.filename);
+  if (!backupPath || !fs.existsSync(backupPath)) {
+    return res.status(404).send('File backup tidak ditemukan.');
+  }
+  return res.download(backupPath, path.basename(backupPath), error => {
+    if (error && !res.headersSent) next(error);
+  });
+});
+
+router.post('/backup/hapus/:filename', requireRole('owner'), (req, res) => {
+  if (!deleteBackup(req.params.filename)) {
+    return res.status(404).send('File backup tidak ditemukan.');
+  }
+  return res.redirect(`${adminPath}/backup?message=dihapus`);
+});
+
+router.post('/backup/restore', requireRole('owner'), handleBackupUpload, csrfProtection, (req, res, next) => {
+  try {
+    const result = restoreBackup(req.file);
+    return renderBackupPage(req, res, {
+      success: `Pemulihan selesai. Backup pengaman dibuat: ${result.safetyBackup}. Restart server sebelum melanjutkan.`
+    });
+  } catch (error) {
+    if (error instanceof Error && !error.code) {
+      return renderBackupPage(req, res, { error: error.message, status: 400 });
+    }
+    return next(error);
+  }
+});
+
+router.get('/pengguna', requireRole('owner'), (req, res) => {
+  return res.render('admin/users', {
+    adminPath,
+    users: listUsers(),
+    roles: USER_ROLES,
+    error: null,
+    message: req.query.message === 'dibuat'
+      ? 'Pengguna berhasil ditambahkan dan wajib mengganti password saat masuk.'
+      : req.query.message === 'password'
+        ? 'Password sementara berhasil diatur.'
+        : req.query.message === 'status'
+          ? 'Status akun berhasil diperbarui.'
+          : req.query.message === 'peran'
+            ? 'Peran pengguna berhasil diperbarui.'
+            : null
+  });
+});
+
+router.post('/pengguna', requireRole('owner'), (req, res) => {
+  try {
+    createUser({
+      username: req.body.username,
+      password: req.body.password,
+      role: req.body.role
+    });
+    return res.redirect(`${adminPath}/pengguna?message=dibuat`);
+  } catch (error) {
+    if (!(error instanceof Error) || error.code) throw error;
+    return res.status(400).render('admin/users', {
+      adminPath,
+      users: listUsers(),
+      roles: USER_ROLES,
+      error: error.message,
+      message: null,
+      form: {
+        username: typeof req.body.username === 'string' ? req.body.username : '',
+        role: typeof req.body.role === 'string' ? req.body.role : ''
+      }
+    });
+  }
+});
+
+router.post('/pengguna/:id/reset-password', requireRole('owner'), (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(404).send('Pengguna tidak ditemukan.');
+  }
+
+  try {
+    resetUserPassword(userId, req.body.password);
+    return res.redirect(`${adminPath}/pengguna?message=password`);
+  } catch (error) {
+    if (!(error instanceof Error) || error.code) throw error;
+    return res.status(400).render('admin/users', {
+      adminPath,
+      users: listUsers(),
+      roles: USER_ROLES,
+      error: error.message,
+      message: null,
+      resetUserId: userId
+    });
+  }
+});
+
+router.post('/pengguna/:id/peran', requireRole('owner'), (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isSafeInteger(userId) || userId < 1) {
+    return res.status(404).send('Pengguna tidak ditemukan.');
+  }
+
+  try {
+    updateUserRole(userId, req.body.role);
+    return res.redirect(`${adminPath}/pengguna?message=peran`);
+  } catch (error) {
+    if (!(error instanceof Error) || error.code) throw error;
+    return res.status(400).render('admin/users', {
+      adminPath,
+      users: listUsers(),
+      roles: USER_ROLES,
+      error: error.message,
+      message: null
+    });
+  }
+});
+
+router.post('/pengguna/:id/status', requireRole('owner'), (req, res) => {
+  const userId = Number(req.params.id);
+  const isActive = req.body.is_active === '1' ? 1 : req.body.is_active === '0' ? 0 : null;
+  if (!Number.isSafeInteger(userId) || userId < 1 || isActive === null) {
+    return res.status(400).send('Permintaan status pengguna tidak valid.');
+  }
+
+  try {
+    setUserActive(userId, isActive);
+    return res.redirect(`${adminPath}/pengguna?message=status`);
+  } catch (error) {
+    if (!(error instanceof Error) || error.code) throw error;
+    return res.status(400).render('admin/users', {
+      adminPath,
+      users: listUsers(),
+      roles: USER_ROLES,
+      error: error.message,
+      message: null
+    });
+  }
 });
 
 router.use((req, res) => {

@@ -1,7 +1,11 @@
-// Service Manajemen Berita di Panel Admin (Sanitasi, CRUD, Tagging, & Otorisasi)
+// Service Manajemen Berita & Redaksi di Panel Admin
+const path = require('path');
+const fs = require('fs');
 const sanitizeHtml = require('sanitize-html');
-const { db } = require('../db/index');
+const { db, uploadsDir } = require('../db/index');
 const { slugify } = require('./categoryService');
+
+const ARTICLE_STATUSES = ['draft', 'diajukan', 'terbit'];
 
 // Konfigurasi Sanitasi HTML untuk Konten Artikel
 const SANITIZE_OPTIONS = {
@@ -15,62 +19,115 @@ const SANITIZE_OPTIONS = {
   allowedSchemes: ['http', 'https', 'mailto']
 };
 
-function cleanArticleHtml(htmlContent) {
+function cleanArticleContent(htmlContent) {
   return sanitizeHtml(htmlContent || '', SANITIZE_OPTIONS);
 }
 
-// 1. Ambil Statistik Ringkasan untuk Dashboard
-function getDashboardStats() {
-  const totalArticles = db.prepare('SELECT COUNT(*) AS total FROM articles').get().total;
-  const draftArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'draft'").get().total;
-  const submittedArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'diajukan'").get().total;
-  const publishedArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'terbit'").get().total;
-  
-  // Hitung total berita dibaca hari ini dari tabel tracking article_views
-  const todayViews = db.prepare("SELECT COUNT(*) AS total FROM article_views WHERE viewed_date = CURRENT_DATE").get().total;
+// 1. Ambil Statistik Dashboard Sesuai Peran
+function getArticleStats(authorId = null) {
+  let totalArticles = 0;
+  let draftArticles = 0;
+  let submittedArticles = 0;
+  let todayViews = 0;
+
+  if (authorId) {
+    totalArticles = db.prepare('SELECT COUNT(*) AS total FROM articles WHERE author_id = ?').get(authorId).total;
+    draftArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'draft' AND author_id = ?").get(authorId).total;
+    submittedArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'diajukan' AND author_id = ?").get(authorId).total;
+    todayViews = db.prepare(`
+      SELECT COUNT(v.id) AS total 
+      FROM article_views v
+      JOIN articles a ON v.article_id = a.id
+      WHERE v.viewed_date = CURRENT_DATE AND a.author_id = ?
+    `).get(authorId).total;
+  } else {
+    totalArticles = db.prepare('SELECT COUNT(*) AS total FROM articles').get().total;
+    draftArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'draft'").get().total;
+    submittedArticles = db.prepare("SELECT COUNT(*) AS total FROM articles WHERE status = 'diajukan'").get().total;
+    todayViews = db.prepare("SELECT COUNT(*) AS total FROM article_views WHERE viewed_date = CURRENT_DATE").get().total;
+  }
 
   return {
     totalArticles,
     draftArticles,
     submittedArticles,
-    publishedArticles,
-    todayViews
+    todayViews,
+    // Alias untuk kompatibilitas
+    total: totalArticles,
+    draft: draftArticles,
+    diajukan: submittedArticles,
+    dibaca_hari_ini: todayViews
   };
 }
 
-// 2. Ambil Daftar Berita dengan Filter, Pencarian, & Otorisasi Peran
-function getAdminArticles({ user, search = '', status = '', page = 1, limit = 10 }) {
+// 2. Ambil Semua Kategori untuk Form Editor
+function getEditorData() {
+  return db.prepare('SELECT * FROM categories ORDER BY name ASC').all();
+}
+
+// 3. Ambil Kategori Berdasarkan ID
+function getCategoryById(id) {
+  return db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+}
+
+// 4. Simpan / Perbarui Kategori
+function saveCategory({ id = null, name }) {
+  const cleanName = (name || '').trim();
+  if (!cleanName) {
+    throw new Error('Nama kategori wajib diisi.');
+  }
+
+  let slug = slugify(cleanName);
+  if (!slug) slug = 'kategori';
+
+  if (id) {
+    const existing = db.prepare('SELECT id FROM categories WHERE slug = ? AND id != ?').get(slug, id);
+    if (existing) slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    db.prepare('UPDATE categories SET name = ?, slug = ? WHERE id = ?').run(cleanName, slug, id);
+  } else {
+    const existing = db.prepare('SELECT id FROM categories WHERE slug = ?').get(slug);
+    if (existing) slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    db.prepare('INSERT INTO categories (name, slug) VALUES (?, ?)').run(cleanName, slug);
+  }
+}
+
+// 5. Hapus Kategori
+function removeCategory(id) {
+  try {
+    db.prepare('DELETE FROM categories WHERE id = ?').run(id);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+// 6. Daftar Artikel untuk Panel Admin (dengan Filter & Otorisasi Peran)
+function listArticles({ user, query = '', status = '' }) {
   const conditions = [];
   const params = [];
 
-  // Aturan Peran: Penulis hanya dapat melihat berita miliknya sendiri
-  if (user.role === 'penulis') {
+  // Penulis hanya melihat berita miliknya sendiri
+  if (user && user.role === 'penulis') {
     conditions.push('a.author_id = ?');
     params.push(user.id);
   }
 
-  // Filter pencarian judul
-  if (search && search.trim()) {
-    conditions.push('a.title LIKE ?');
-    params.push(`%${search.trim()}%`);
+  // Filter pencarian judul atau isi
+  if (query && query.trim()) {
+    conditions.push('(a.title LIKE ? OR a.content LIKE ? OR a.summary LIKE ?)');
+    const term = `%${query.trim()}%`;
+    params.push(term, term, term);
   }
 
   // Filter status artikel
-  if (status && ['draft', 'diajukan', 'terbit'].includes(status)) {
+  if (status && ARTICLE_STATUSES.includes(status)) {
     conditions.push('a.status = ?');
     params.push(status);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  // Hitung total hasil
-  const countRow = db.prepare(`SELECT COUNT(*) AS total FROM articles a ${whereClause}`).get(...params);
-  const total = countRow ? countRow.total : 0;
-  const totalPages = Math.ceil(total / limit) || 1;
-  const offset = (page - 1) * limit;
-
-  // Query data artikel
-  const articles = db.prepare(`
+  return db.prepare(`
     SELECT 
       a.id, a.title, a.slug, a.status, a.views, a.created_at, a.published_at, a.image_path,
       c.name AS category_name,
@@ -81,23 +138,24 @@ function getAdminArticles({ user, search = '', status = '', page = 1, limit = 10
     LEFT JOIN users u ON a.author_id = u.id
     ${whereClause}
     ORDER BY a.created_at DESC
-    LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
-
-  return {
-    articles,
-    total,
-    page,
-    totalPages,
-    hasNext: page < totalPages,
-    hasPrev: page > 1
-  };
+  `).all(...params);
 }
 
-// 3. Ambil Berita Berdasarkan ID (Beserta Tag) untuk Form Edit
-function getArticleForEdit(id) {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
+// 7. Ambil Berita untuk Form Edit
+function getArticleForEditor(id, user) {
+  const article = db.prepare(`
+    SELECT a.*, c.name AS category_name
+    FROM articles a
+    LEFT JOIN categories c ON a.category_id = c.id
+    WHERE a.id = ?
+  `).get(id);
+
   if (!article) return null;
+
+  // Penulis hanya boleh mengedit berita miliknya sendiri
+  if (user && user.role === 'penulis' && article.author_id !== user.id) {
+    return null;
+  }
 
   const tags = db.prepare(`
     SELECT t.name 
@@ -106,24 +164,23 @@ function getArticleForEdit(id) {
     WHERE at.article_id = ?
   `).all(id);
 
-  article.tagsString = tags.map(t => t.name).join(', ');
+  article.tags = tags.map(t => t.name);
+  article.tagsString = article.tags.join(', ');
   return article;
 }
 
-// Helper Menyimpan Tag
-function syncArticleTags(articleId, tagsString) {
-  // Hapus relasi tag lama
+// Helper Sinkronisasi Tag
+function syncArticleTags(articleId, tagsInput) {
   db.prepare('DELETE FROM article_tags WHERE article_id = ?').run(articleId);
 
-  if (!tagsString || !tagsString.trim()) return;
+  let tagArray = [];
+  if (Array.isArray(tagsInput)) {
+    tagArray = tagsInput;
+  } else if (typeof tagsInput === 'string') {
+    tagArray = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
+  }
 
-  const tagNames = [...new Set(
-    tagsString
-      .split(',')
-      .map(t => t.trim())
-      .filter(t => t.length > 0)
-  )];
-
+  const tagNames = [...new Set(tagArray.map(t => t.trim()).filter(Boolean))];
   const insertTagStmt = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
   const getTagStmt = db.prepare('SELECT id FROM tags WHERE name = ?');
   const linkStmt = db.prepare('INSERT OR IGNORE INTO article_tags (article_id, tag_id) VALUES (?, ?)');
@@ -137,18 +194,91 @@ function syncArticleTags(articleId, tagsString) {
   }
 }
 
-// 4. Tambah Berita Baru
-function createArticle({ user, title, category_id, status, content, summary, tags, image_path }) {
-  const cleanTitle = (title || '').trim();
-  if (!cleanTitle) {
-    return { success: false, message: 'Judul berita wajib diisi.' };
+// 8. Simpan Berita Baru atau Pembaruan Berita
+function saveArticle({ articleId = null, user, fields, imagePath = null }) {
+  const title = (fields.title || '').trim();
+  const categoryId = fields.category_id ? parseInt(fields.category_id) : null;
+  const rawStatus = (fields.status || 'draft').trim();
+  const rawContent = fields.content || '';
+  const rawSummary = fields.summary || '';
+  const tags = fields.tags || '';
+
+  if (!title) {
+    throw new Error('Judul berita wajib diisi.');
+  }
+  if (!categoryId) {
+    throw new Error('Kategori berita wajib dipilih.');
   }
 
-  // Sanitasi Konten HTML
-  const sanitizedContent = cleanArticleHtml(content);
+  // Sanitasi konten artikel dengan sanitize-html
+  const content = cleanArticleContent(rawContent);
 
-  // Buat slug unik
-  let baseSlug = slugify(cleanTitle) || 'berita';
+  // Validasi status penerbitan berdasarkan peran
+  let status = 'draft';
+  if (user.role === 'penulis') {
+    // Penulis hanya boleh memilih draft atau diajukan
+    status = rawStatus === 'diajukan' ? 'diajukan' : 'draft';
+  } else {
+    // Editor dan Owner boleh menerbitkan
+    status = ARTICLE_STATUSES.includes(rawStatus) ? rawStatus : 'draft';
+  }
+
+  const summary = (rawSummary || '').trim() ||
+    content.replace(/<[^>]*>?/gm, '').slice(0, 160).trim();
+
+  // Mode Edit
+  if (articleId) {
+    const existing = db.prepare('SELECT * FROM articles WHERE id = ?').get(articleId);
+    if (!existing) return null;
+
+    if (user.role === 'penulis' && existing.author_id !== user.id) {
+      throw new Error('Anda tidak memiliki izin untuk mengedit naskah ini.');
+    }
+
+    let slug = existing.slug;
+    if (title !== existing.title) {
+      let baseSlug = slugify(title) || 'berita';
+      slug = baseSlug;
+      let counter = 1;
+      while (db.prepare('SELECT id FROM articles WHERE slug = ? AND id != ?').get(slug, articleId)) {
+        slug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+    }
+
+    let publishedAt = existing.published_at;
+    if (status === 'terbit' && !publishedAt) {
+      publishedAt = new Date().toISOString();
+    } else if (status !== 'terbit') {
+      publishedAt = null;
+    }
+
+    const finalImagePath = imagePath || existing.image_path || '/images/default-article.svg';
+
+    db.prepare(`
+      UPDATE articles SET
+        title = ?,
+        slug = ?,
+        summary = ?,
+        content = ?,
+        image_path = ?,
+        category_id = ?,
+        status = ?,
+        published_at = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(title, slug, summary, content, finalImagePath, categoryId, status, publishedAt, articleId);
+
+    syncArticleTags(articleId, tags);
+
+    return {
+      articleId,
+      previousImagePath: imagePath && existing.image_path !== imagePath ? existing.image_path : null
+    };
+  }
+
+  // Mode Buat Baru
+  let baseSlug = slugify(title) || 'berita';
   let slug = baseSlug;
   let counter = 1;
   while (db.prepare('SELECT id FROM articles WHERE slug = ?').get(slug)) {
@@ -156,167 +286,51 @@ function createArticle({ user, title, category_id, status, content, summary, tag
     counter++;
   }
 
-  // Validasi Aturan Status Berdasarkan Peran
-  let finalStatus = 'draft';
-  if (user.role === 'penulis') {
-    // Penulis hanya boleh memilih draft atau diajukan
-    finalStatus = status === 'diajukan' ? 'diajukan' : 'draft';
-  } else {
-    // Editor dan Owner boleh menerbitkan
-    finalStatus = ['draft', 'diajukan', 'terbit'].includes(status) ? status : 'draft';
-  }
+  const publishedAt = status === 'terbit' ? new Date().toISOString() : null;
+  const finalImagePath = imagePath || '/images/default-article.svg';
 
-  const publishedAt = finalStatus === 'terbit' ? new Date().toISOString() : null;
-
-  // Ringkasan otomatis jika tidak diisi
-  const cleanSummary = (summary || '').trim() ||
-    sanitizedContent.replace(/<[^>]*>?/gm, '').slice(0, 160).trim();
-
-  const insertStmt = db.prepare(`
+  const info = db.prepare(`
     INSERT INTO articles (
       title, slug, summary, content, image_path, category_id,
       author_id, status, views, published_at, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `);
+  `).run(title, slug, summary, content, finalImagePath, categoryId, user.id, status, publishedAt);
 
-  try {
-    const info = insertStmt.run(
-      cleanTitle,
-      slug,
-      cleanSummary,
-      sanitizedContent,
-      image_path || '/images/default-article.svg',
-      category_id ? parseInt(category_id) : null,
-      user.id,
-      finalStatus,
-      publishedAt
-    );
+  const newArticleId = info.lastInsertRowid;
+  syncArticleTags(newArticleId, tags);
 
-    const articleId = info.lastInsertRowid;
-    syncArticleTags(articleId, tags);
-
-    return { success: true, articleId };
-  } catch (err) {
-    return { success: false, message: 'Gagal membuat berita: ' + err.message };
-  }
+  return { articleId: newArticleId, previousImagePath: null };
 }
 
-// 5. Perbarui Berita
-function updateArticle({ id, user, title, category_id, status, content, summary, tags, image_path }) {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
-  if (!article) {
-    return { success: false, message: 'Berita tidak ditemukan.' };
-  }
-
-  // Cek Hak Akses: Penulis hanya boleh mengedit berita miliknya sendiri
-  if (user.role === 'penulis' && article.author_id !== user.id) {
-    return { success: false, message: 'Anda tidak memiliki hak untuk mengedit berita ini.' };
-  }
-
-  const cleanTitle = (title || '').trim();
-  if (!cleanTitle) {
-    return { success: false, message: 'Judul berita wajib diisi.' };
-  }
-
-  // Sanitasi Konten HTML
-  const sanitizedContent = cleanArticleHtml(content);
-
-  // Periksa apakah judul berubah, jika ya perbarui slug
-  let slug = article.slug;
-  if (cleanTitle !== article.title) {
-    let baseSlug = slugify(cleanTitle) || 'berita';
-    slug = baseSlug;
-    let counter = 1;
-    while (db.prepare('SELECT id FROM articles WHERE slug = ? AND id != ?').get(slug, id)) {
-      slug = `${baseSlug}-${counter}`;
-      counter++;
-    }
-  }
-
-  // Validasi Status Berdasarkan Peran
-  let finalStatus = article.status;
-  if (user.role === 'penulis') {
-    // Penulis hanya boleh memilih draft atau diajukan
-    finalStatus = status === 'diajukan' ? 'diajukan' : 'draft';
-  } else {
-    // Editor dan Owner bebas memilih status
-    finalStatus = ['draft', 'diajukan', 'terbit'].includes(status) ? status : article.status;
-  }
-
-  // Atur tanggal terbit
-  let publishedAt = article.published_at;
-  if (finalStatus === 'terbit' && !publishedAt) {
-    publishedAt = new Date().toISOString();
-  } else if (finalStatus !== 'terbit') {
-    // Jika dikembalikan ke draft/diajukan oleh redaksi
-    publishedAt = null;
-  }
-
-  const finalImagePath = image_path || article.image_path || '/images/default-article.svg';
-  const cleanSummary = (summary || '').trim() ||
-    sanitizedContent.replace(/<[^>]*>?/gm, '').slice(0, 160).trim();
-
-  const updateStmt = db.prepare(`
-    UPDATE articles SET
-      title = ?,
-      slug = ?,
-      summary = ?,
-      content = ?,
-      image_path = ?,
-      category_id = ?,
-      status = ?,
-      published_at = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `);
-
-  try {
-    updateStmt.run(
-      cleanTitle,
-      slug,
-      cleanSummary,
-      sanitizedContent,
-      finalImagePath,
-      category_id ? parseInt(category_id) : null,
-      finalStatus,
-      publishedAt,
-      id
-    );
-
-    syncArticleTags(id, tags);
-
-    return { success: true };
-  } catch (err) {
-    return { success: false, message: 'Gagal memperbarui berita: ' + err.message };
-  }
-}
-
-// 6. Hapus Berita
-function deleteArticle(id, user) {
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(id);
-  if (!article) {
-    return { success: false, message: 'Berita tidak ditemukan.' };
-  }
-
-  // Penulis hanya boleh menghapus berita miliknya sendiri
-  if (user.role === 'penulis' && article.author_id !== user.id) {
-    return { success: false, message: 'Anda tidak memiliki hak untuk menghapus berita ini.' };
-  }
-
+// 9. Hapus Berita
+function removeArticle(id, imagePath = null) {
   try {
     db.prepare('DELETE FROM articles WHERE id = ?').run(id);
-    return { success: true };
+
+    // Hapus file gambar jika ada di uploads/ dan bukan default
+    if (imagePath && imagePath.startsWith('/uploads/')) {
+      const filename = path.basename(imagePath);
+      const fullPath = path.join(uploadsDir, filename);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    }
+    return true;
   } catch (err) {
-    return { success: false, message: 'Gagal menghapus berita: ' + err.message };
+    return false;
   }
 }
 
 module.exports = {
-  cleanArticleHtml,
-  getDashboardStats,
-  getAdminArticles,
-  getArticleForEdit,
-  createArticle,
-  updateArticle,
-  deleteArticle
+  ARTICLE_STATUSES,
+  cleanArticleContent,
+  getArticleStats,
+  getEditorData,
+  getCategoryById,
+  saveCategory,
+  removeCategory,
+  listArticles,
+  getArticleForEditor,
+  saveArticle,
+  removeArticle
 };

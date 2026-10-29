@@ -20,7 +20,8 @@ function csrfProtection(req, res, next) {
     return next();
   }
 
-  if (req.is('multipart/form-data') && req.body === undefined) {
+  // Jika permintaan multipart/form-data dan multer belum mem-parse body
+  if (req.is('multipart/form-data') && (!req.body || !req.body._csrf)) {
     return next();
   }
 

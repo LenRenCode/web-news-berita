@@ -10,6 +10,9 @@
     <% if (['owner', 'editor'].includes(currentUser.role)) { %>
       <a class="nav-link" href="<%= adminPath %>/kategori">Kategori</a>
     <% } %>
+    <% if (currentUser.role === 'owner') { %>
+      <a class="nav-link" href="<%= adminPath %>/pengguna">Pengguna</a>
+    <% } %>
   </nav>
   <div class="sidebar-footer">
     <span><strong><%= currentUser.username %></strong> · <%= currentUser.role %></span>
