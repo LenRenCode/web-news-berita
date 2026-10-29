@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const { ZipArchive } = require('archiver');
 const yauzl = require('yauzl');
@@ -136,7 +137,17 @@ function inspectArchive(archivePath, extractDirectory = null) {
             fs.mkdirSync(path.dirname(destination), { recursive: true });
             zipFile.openReadStream(entry, (streamError, readStream) => {
               if (streamError) return fail(streamError);
-              pipeline(readStream, fs.createWriteStream(destination, { flags: 'wx' }))
+              let extractedSize = 0;
+              const sizeGuard = new Transform({
+                transform(chunk, encoding, callback) {
+                  extractedSize += chunk.length;
+                  if (extractedSize > entry.uncompressedSize || extractedSize > MAX_BACKUP_SIZE) {
+                    return callback(new Error('Ukuran hasil ekstraksi tidak sesuai dengan arsip.'));
+                  }
+                  return callback(null, chunk);
+                }
+              });
+              pipeline(readStream, sizeGuard, fs.createWriteStream(destination, { flags: 'wx' }))
                 .then(() => zipFile.readEntry())
                 .catch(fail);
             });

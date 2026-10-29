@@ -38,7 +38,7 @@ Semua aset penting aplikasi disimpan terpusat di dalam satu folder:
 ## 📋 Panduan Instalasi & Menjalankan
 
 ### Persyaratan Sistem
-- **Node.js** versi 18 ke atas
+- **Node.js** versi 22 ke atas
 - **npm** versi 9 ke atas
 
 ### 1. Clone & Pasang Dependensi
