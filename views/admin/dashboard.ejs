@@ -8,50 +8,13 @@
 </head>
 <body>
   <div class="admin-layout">
-    <!-- Sidebar Panel Admin -->
-    <aside class="admin-sidebar">
-      <div class="sidebar-brand">
-        NamaBerita
-        <span>Panel Redaksi</span>
-      </div>
-
-      <nav class="sidebar-nav">
-        <a href="<%= adminPath %>" class="nav-link active">
-          📊 Dashboard
-        </a>
-        <a href="<%= adminPath %>/berita" class="nav-link">
-          📰 Kelola Berita
-        </a>
-        <% if (['owner', 'editor'].includes(currentUser.role)) { %>
-          <a href="<%= adminPath %>/kategori" class="nav-link">
-            📁 Kategori
-          </a>
-        <% } %>
-        <% if (currentUser.role === 'owner') { %>
-          <a href="<%= adminPath %>/pengguna" class="nav-link">
-            👥 Pengguna
-          </a>
-          <a href="<%= adminPath %>/backup" class="nav-link">
-            💾 Backup & Restore
-          </a>
-        <% } %>
-      </nav>
-    </aside>
+    <%- include('_nav', { adminPath, currentUser, csrfToken }) %>
 
     <!-- Konten Utama Admin -->
     <main class="admin-main">
       <header class="admin-topbar">
-        <div class="user-badge">
-          <span>Masuk sebagai: <strong><%= currentUser.username %></strong></span>
-          <span class="role-pill role-<%= currentUser.role %>"><%= currentUser.role %></span>
-        </div>
-
-        <form action="<%= adminPath %>/logout" method="POST" style="margin: 0;">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <button type="submit" class="btn-logout">
-            🚪 Keluar
-          </button>
-        </form>
+        <h1>Dashboard</h1>
+        <a class="btn-primary btn-inline" href="<%= adminPath %>/berita/tulis">Tulis berita</a>
       </header>
 
       <div class="admin-content">

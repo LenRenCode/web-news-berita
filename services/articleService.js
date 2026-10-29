@@ -1,6 +1,8 @@
 // Service Pengambilan Data Artikel untuk Halaman Publik
 const { db } = require('../db/index');
-const sanitizeHtml = require('sanitize-html');
+const { cleanArticleContent } = require('./adminArticleService');
+
+const ownerUsername = (process.env.OWNER_USERNAME || 'admin').replace(/'/g, "''");
 
 // Helper query dasar untuk artikel yang berstatus 'terbit'
 const BASE_SELECT = `
@@ -8,7 +10,7 @@ const BASE_SELECT = `
     a.id, a.title, a.slug, a.summary, a.content, a.image_path,
     a.status, a.views, a.created_at, a.updated_at, a.published_at,
     c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
-    CASE WHEN u.username = 'admin' THEN 'Redaksi' ELSE u.username END AS author_name
+    CASE WHEN u.username = '${ownerUsername}' THEN 'Redaksi' ELSE u.username END AS author_name
   FROM articles a
   LEFT JOIN categories c ON a.category_id = c.id
   LEFT JOIN users u ON a.author_id = u.id
@@ -161,7 +163,7 @@ function getArticleBySlug(slug) {
   `).get(slug);
 
   if (!article) return null;
-  article.content = sanitizeHtml(article.content);
+  article.content = cleanArticleContent(article.content);
 
   // Ambil tag artikel
   const tags = db.prepare(`

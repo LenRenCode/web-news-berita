@@ -20,8 +20,11 @@ function csrfProtection(req, res, next) {
     return next();
   }
 
-  // Jika permintaan multipart/form-data dan multer belum mem-parse body
-  if (req.is('multipart/form-data') && (!req.body || !req.body._csrf)) {
+  // Hanya tunda pengecekan multipart untuk route yang memang memiliki upload handler (multer)
+  const fullPath = (req.baseUrl || '') + req.path;
+  const isUploadRoute = /\/berita(\/\d+)?$/.test(fullPath) || fullPath.endsWith('/backup/restore');
+  if (req.is('multipart/form-data') && isUploadRoute && !req._csrfDeferred) {
+    req._csrfDeferred = true;
     return next();
   }
 
