@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Panel Redaksi NamaBerita</title>
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body>
+  <div class="admin-layout">
+    <!-- Sidebar Panel Admin -->
+    <aside class="admin-sidebar">
+      <div class="sidebar-brand">
+        NamaBerita
+        <span>Panel Redaksi</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="<%= adminPath %>" class="nav-link active">
+          📊 Dashboard
+        </a>
+        <a href="<%= adminPath %>/berita" class="nav-link">
+          📰 Kelola Berita
+        </a>
+        <% if (['owner', 'editor'].includes(currentUser.role)) { %>
+          <a href="<%= adminPath %>/kategori" class="nav-link">
+            📁 Kategori
+          </a>
+        <% } %>
+        <% if (currentUser.role === 'owner') { %>
+          <a href="<%= adminPath %>/pengguna" class="nav-link">
+            👥 Pengguna
+          </a>
+          <a href="<%= adminPath %>/backup" class="nav-link">
+            💾 Backup & Restore
+          </a>
+        <% } %>
+      </nav>
+    </aside>
+
+    <!-- Konten Utama Admin -->
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div class="user-badge">
+          <span>Masuk sebagai: <strong><%= currentUser.username %></strong></span>
+          <span class="role-pill role-<%= currentUser.role %>"><%= currentUser.role %></span>
+        </div>
+
+        <form action="<%= adminPath %>/logout" method="POST" style="margin: 0;">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn-logout">
+            🚪 Keluar
+          </button>
+        </form>
+      </header>
+
+      <div class="admin-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+          <div>
+            <h1 style="font-size: 1.8rem; font-weight: 800;">Ringkasan Redaksi</h1>
+            <p style="color: var(--admin-text-muted);">Pantau produktivitas penerbitan berita dan interaksi pembaca hari ini.</p>
+          </div>
+          <a href="<%= adminPath %>/berita/tambah" class="btn-primary" style="width: auto; padding: 0.65rem 1.25rem;">
+            ✍️ Tulis Berita Baru
+          </a>
+        </div>
+
+        <!-- Grid Statistik Dashboard -->
+        <div class="stats-grid">
+          <!-- 1. Total Berita -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Total Berita</span>
+              <span class="stat-icon">📚</span>
+            </div>
+            <div class="stat-value"><%= stats.totalArticles %></div>
+          </div>
+
+          <!-- 2. Draft -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Draft</span>
+              <span class="stat-icon">📝</span>
+            </div>
+            <div class="stat-value"><%= stats.draftArticles %></div>
+          </div>
+
+          <!-- 3. Diajukan (Menunggu Review) -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Diajukan</span>
+              <span class="stat-icon">⏳</span>
+            </div>
+            <div class="stat-value" style="color: #fbbf24;"><%= stats.submittedArticles %></div>
+          </div>
+
+          <!-- 4. Dibaca Hari Ini -->
+          <div class="stat-card">
+            <div class="stat-header">
+              <span class="stat-label">Dibaca Hari Ini</span>
+              <span class="stat-icon">🔥</span>
+            </div>
+            <div class="stat-value" style="color: #38bdf8;"><%= stats.todayViews %></div>
+          </div>
+        </div>
+
+        <!-- Seksi Shortcut Cepat -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+          <div style="background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: var(--radius); padding: 1.5rem;">
+            <h3 style="font-size: 1.1rem; margin-bottom: 0.75rem;">Aksi Cepat Berita</h3>
+            <p style="color: var(--admin-text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
+              Mulai membuat draf tulisan baru, mengajukan naskah ke redaksi, atau mengelola publikasi artikel.
+            </p>
+            <div style="display: flex; gap: 0.75rem;">
+              <a href="<%= adminPath %>/berita/tambah" class="btn-sm btn-secondary">
+                + Tulis Baru
+              </a>
+              <a href="<%= adminPath %>/berita" class="btn-sm btn-secondary">
+                Lihat Semua Berita &rarr;
+              </a>
+            </div>
+          </div>
+
+          <% if (['owner', 'editor'].includes(currentUser.role)) { %>
+            <div style="background: var(--admin-card); border: 1px solid var(--admin-border); border-radius: var(--radius); padding: 1.5rem;">
+              <h3 style="font-size: 1.1rem; margin-bottom: 0.75rem;">Kelola Rubrik Kategori</h3>
+              <p style="color: var(--admin-text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
+                Atur pengelompokan rubrik berita agar pembaca dapat menelusuri artikel dengan mudah.
+              </p>
+              <a href="<%= adminPath %>/kategori" class="btn-sm btn-secondary">
+                Buka Menu Kategori &rarr;
+              </a>
+            </div>
+          <% } %>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
